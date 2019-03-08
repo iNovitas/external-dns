@@ -40,6 +40,7 @@ var ErrSourceNotFound = errors.New("source not found")
 type Config struct {
 	Namespace                string
 	AnnotationFilter         string
+	LabelFilter              string
 	FQDNTemplate             string
 	CombineFQDNAndAnnotation bool
 	IgnoreHostnameAnnotation bool
@@ -113,12 +114,13 @@ func BuildWithConfig(source string, p ClientGenerator, cfg *Config) (Source, err
 		if err != nil {
 			return nil, err
 		}
-		return NewServiceSource(client, cfg.Namespace, cfg.AnnotationFilter, cfg.FQDNTemplate, cfg.CombineFQDNAndAnnotation, cfg.Compatibility, cfg.PublishInternal, cfg.PublishHostIP, cfg.ServiceTypeFilter, cfg.IgnoreHostnameAnnotation)
+		return NewServiceSource(client, cfg.Namespace, cfg.AnnotationFilter, cfg.LabelFilter, cfg.FQDNTemplate, cfg.CombineFQDNAndAnnotation, cfg.Compatibility, cfg.PublishInternal, cfg.PublishHostIP, cfg.ServiceTypeFilter, cfg.IgnoreHostnameAnnotation)
 	case "ingress":
 		client, err := p.KubeClient()
 		if err != nil {
 			return nil, err
 		}
+		// REVIEW: cfg.LabelFilter?
 		return NewIngressSource(client, cfg.Namespace, cfg.AnnotationFilter, cfg.FQDNTemplate, cfg.CombineFQDNAndAnnotation, cfg.IgnoreHostnameAnnotation)
 	case "istio-gateway":
 		kubernetesClient, err := p.KubeClient()
@@ -129,6 +131,7 @@ func BuildWithConfig(source string, p ClientGenerator, cfg *Config) (Source, err
 		if err != nil {
 			return nil, err
 		}
+		// REVIEW: cfg.LabelFilter?
 		return NewIstioGatewaySource(kubernetesClient, istioClient, cfg.IstioIngressGateway, cfg.Namespace, cfg.AnnotationFilter, cfg.FQDNTemplate, cfg.CombineFQDNAndAnnotation, cfg.IgnoreHostnameAnnotation)
 	case "fake":
 		return NewFakeSource(cfg.FQDNTemplate)

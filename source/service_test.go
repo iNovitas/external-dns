@@ -45,6 +45,7 @@ func (suite *ServiceSuite) SetupTest() {
 		fakeClient,
 		"",
 		"",
+		"",
 		"{{.Name}}",
 		false,
 		"",
@@ -137,6 +138,7 @@ func testServiceSourceNewServiceSource(t *testing.T) {
 				fake.NewSimpleClientset(),
 				"",
 				ti.annotationFilter,
+				"",
 				ti.fqdnTemplate,
 				false,
 				"",
@@ -1077,6 +1079,7 @@ func testServiceSourceEndpoints(t *testing.T) {
 				kubernetes,
 				tc.targetNamespace,
 				tc.annotationFilter,
+				"",
 				tc.fqdnTemplate,
 				tc.combineFQDNAndAnnotation,
 				tc.compatibility,
@@ -1236,6 +1239,7 @@ func TestClusterIpServices(t *testing.T) {
 				kubernetes,
 				tc.targetNamespace,
 				tc.annotationFilter,
+				"",
 				tc.fqdnTemplate,
 				false,
 				tc.compatibility,
@@ -1263,6 +1267,7 @@ func TestClusterIpServices(t *testing.T) {
 func TestNodePortServices(t *testing.T) {
 	for _, tc := range []struct {
 		title                    string
+		labelFilter              string
 		targetNamespace          string
 		annotationFilter         string
 		svcNamespace             string
@@ -1279,7 +1284,52 @@ func TestNodePortServices(t *testing.T) {
 		nodes                    []*v1.Node
 	}{
 		{
+			"annotated NodePort services return an endpoint with IP addresses of the cluster's nodes that have labels",
+			"beta.kubernetes.io/instance-type=t2.large",
+			"",
+			"",
+			"testing",
+			"foo",
+			v1.ServiceTypeNodePort,
+			"",
+			"",
+			false,
+			map[string]string{},
+			map[string]string{
+				hostnameAnnotationKey: "foo.example.org.",
+			},
+			nil,
+			[]*endpoint.Endpoint{
+				{DNSName: "_30192._tcp.foo.example.org", Targets: endpoint.Targets{"0 50 30192 foo.example.org"}, RecordType: endpoint.RecordTypeSRV},
+				{DNSName: "foo.example.org", Targets: endpoint.Targets{"54.10.11.1"}, RecordType: endpoint.RecordTypeA},
+			},
+			false,
+			[]*v1.Node{{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:   "node1",
+					Labels: map[string]string{"beta.kubernetes.io/instance-type": "t2.large"},
+				},
+				Status: v1.NodeStatus{
+					Addresses: []v1.NodeAddress{
+						{Type: v1.NodeExternalIP, Address: "54.10.11.1"},
+						{Type: v1.NodeInternalIP, Address: "10.0.1.1"},
+					},
+				},
+			}, {
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "node2",
+				},
+				Status: v1.NodeStatus{
+					Addresses: []v1.NodeAddress{
+						{Type: v1.NodeExternalIP, Address: "54.10.11.2"},
+						{Type: v1.NodeInternalIP, Address: "10.0.1.2"},
+					},
+				},
+			}},
+		},
+		{
 			"annotated NodePort services return an endpoint with IP addresses of the cluster's nodes",
+			"",
 			"",
 			"",
 			"testing",
@@ -1324,6 +1374,7 @@ func TestNodePortServices(t *testing.T) {
 			"hostname annotated NodePort services are ignored",
 			"",
 			"",
+			"",
 			"testing",
 			"foo",
 			v1.ServiceTypeNodePort,
@@ -1361,6 +1412,7 @@ func TestNodePortServices(t *testing.T) {
 		},
 		{
 			"non-annotated NodePort services with set fqdnTemplate return an endpoint with target IP",
+			"",
 			"",
 			"",
 			"testing",
@@ -1401,6 +1453,7 @@ func TestNodePortServices(t *testing.T) {
 		},
 		{
 			"annotated NodePort services return an endpoint with IP addresses of the private cluster's nodes",
+			"",
 			"",
 			"",
 			"testing",
@@ -1477,6 +1530,7 @@ func TestNodePortServices(t *testing.T) {
 				kubernetes,
 				tc.targetNamespace,
 				tc.annotationFilter,
+				tc.labelFilter,
 				tc.fqdnTemplate,
 				false,
 				tc.compatibility,
@@ -1488,6 +1542,7 @@ func TestNodePortServices(t *testing.T) {
 			require.NoError(t, err)
 
 			endpoints, err := client.Endpoints()
+
 			if tc.expectError {
 				require.Error(t, err)
 			} else {
@@ -1707,6 +1762,7 @@ func TestHeadlessServices(t *testing.T) {
 			client, _ := NewServiceSource(
 				kubernetes,
 				tc.targetNamespace,
+				"",
 				"",
 				tc.fqdnTemplate,
 				false,
@@ -1939,6 +1995,7 @@ func TestHeadlessServicesHostIP(t *testing.T) {
 				kubernetes,
 				tc.targetNamespace,
 				"",
+				"",
 				tc.fqdnTemplate,
 				false,
 				tc.compatibility,
@@ -1986,7 +2043,7 @@ func BenchmarkServiceEndpoints(b *testing.B) {
 	_, err := kubernetes.CoreV1().Services(service.Namespace).Create(service)
 	require.NoError(b, err)
 
-	client, err := NewServiceSource(kubernetes, v1.NamespaceAll, "", "", false, "", false, false, []string{}, false)
+	client, err := NewServiceSource(kubernetes, v1.NamespaceAll, "", "", "", false, "", false, false, []string{}, false)
 	require.NoError(b, err)
 
 	for i := 0; i < b.N; i++ {

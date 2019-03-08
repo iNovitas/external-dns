@@ -47,6 +47,7 @@ type serviceSource struct {
 	client           kubernetes.Interface
 	namespace        string
 	annotationFilter string
+	labelFilter      string
 	// process Services with legacy annotations
 	compatibility            string
 	fqdnTemplate             *template.Template
@@ -58,7 +59,7 @@ type serviceSource struct {
 }
 
 // NewServiceSource creates a new serviceSource with the given config.
-func NewServiceSource(kubeClient kubernetes.Interface, namespace, annotationFilter string, fqdnTemplate string, combineFqdnAnnotation bool, compatibility string, publishInternal bool, publishHostIP bool, serviceTypeFilter []string, ignoreHostnameAnnotation bool) (Source, error) {
+func NewServiceSource(kubeClient kubernetes.Interface, namespace, annotationFilter string, labelFilter string, fqdnTemplate string, combineFqdnAnnotation bool, compatibility string, publishInternal bool, publishHostIP bool, serviceTypeFilter []string, ignoreHostnameAnnotation bool) (Source, error) {
 	var (
 		tmpl *template.Template
 		err  error
@@ -83,6 +84,7 @@ func NewServiceSource(kubeClient kubernetes.Interface, namespace, annotationFilt
 		client:                   kubeClient,
 		namespace:                namespace,
 		annotationFilter:         annotationFilter,
+		labelFilter:              labelFilter,
 		compatibility:            compatibility,
 		fqdnTemplate:             tmpl,
 		combineFQDNAnnotation:    combineFqdnAnnotation,
@@ -281,6 +283,37 @@ func (sc *serviceSource) filterByAnnotations(services []v1.Service) ([]v1.Servic
 	return filteredList, nil
 }
 
+// TODO: refactor, DRY with filterByAnnotations
+func (sc *serviceSource) filterByLabels(nodes []v1.Node) ([]v1.Node, error) {
+	labelSelector, err := metav1.ParseToLabelSelector(sc.labelFilter)
+	if err != nil {
+		return nil, err
+	}
+	selector, err := metav1.LabelSelectorAsSelector(labelSelector)
+	if err != nil {
+		return nil, err
+	}
+
+	// empty filter returns original list
+	if selector.Empty() {
+		return nodes, nil
+	}
+
+	filteredList := []v1.Node{}
+
+	for _, node := range nodes {
+		// convert the service's annotations to an equivalent label selector
+		annotations := labels.Set(node.Labels)
+
+		// include service if its annotations match the selector
+		if selector.Matches(annotations) {
+			filteredList = append(filteredList, node)
+		}
+	}
+
+	return filteredList, nil
+}
+
 // filterByServiceType filters services according their types
 func (sc *serviceSource) filterByServiceType(services []v1.Service) []v1.Service {
 	filteredList := []v1.Service{}
@@ -402,7 +435,21 @@ func (sc *serviceSource) extractNodeTargets() (endpoint.Targets, error) {
 		return nil, err
 	}
 
+	log.Debugf("Available nodes are %v", nodes.Items)
+	nodes.Items, err = sc.filterByLabels(nodes.Items)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(nodes.Items) == 0 {
+		log.Debugf("No nodes found with label %s, returning empty list of targets (NodePort services will be skipped)", sc.labelFilter)
+		return endpoint.Targets{}, nil
+	}
+
+	log.Debugf("Nodes filtered by %s are %v", sc.labelFilter, nodes.Items)
+
 	for _, node := range nodes.Items {
+
 		for _, address := range node.Status.Addresses {
 			switch address.Type {
 			case v1.NodeExternalIP:
